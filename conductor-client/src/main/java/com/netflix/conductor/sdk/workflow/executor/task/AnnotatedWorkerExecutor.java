@@ -172,11 +172,41 @@ public class AnnotatedWorkerExecutor {
         Class<?> clazz = bean.getClass();
         for (Method method : clazz.getMethods()) {
             WorkerTask annotation = method.getAnnotation(WorkerTask.class);
-            if (annotation == null) {
+            if (annotation != null) {
+                addMethod(annotation, method, bean);
                 continue;
             }
-            addMethod(annotation, method, bean);
+            Method declared = findAnnotatedInterfaceMethod(clazz, method);
+            if (declared != null) {
+                declared.trySetAccessible();
+                addMethod(declared.getAnnotation(WorkerTask.class), declared, bean);
+            }
         }
+    }
+
+    /** Java does not inherit method annotations from interfaces, so look them up there. */
+    private Method findAnnotatedInterfaceMethod(Class<?> clazz, Method method) {
+        for (Class<?> type = clazz; type != null; type = type.getSuperclass()) {
+            for (Class<?> iface : type.getInterfaces()) {
+                Method found = findAnnotatedMethod(iface, method);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private Method findAnnotatedMethod(Class<?> iface, Method method) {
+        try {
+            Method candidate = iface.getMethod(method.getName(), method.getParameterTypes());
+            if (candidate.isAnnotationPresent(WorkerTask.class)) {
+                return candidate;
+            }
+        } catch (NoSuchMethodException ignored) {
+            // not declared by this interface or its super-interfaces
+        }
+        return null;
     }
 
     private void addMethod(WorkerTask annotation, Method method, Object bean) {
